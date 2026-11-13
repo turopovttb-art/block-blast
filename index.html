@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="uz" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Block Blast Pro Arcade | 2 Ta O'yin Komponenti</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230f172a'/><rect x='20' y='20' width='25' height='25' rx='6' fill='%2300f0ff'/><rect x='55' y='20' width='25' height='25' rx='6' fill='%23ec4899'/><rect x='20' y='55' width='25' height='25' rx='6' fill='%23facc15'/><rect x='55' y='55' width='25' height='25' rx='6' fill='%23a3e635'/></svg>" />
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            blast: {
+              dark: '#090d16',
+              board: '#111827',
+              cell: '#1f2937',
+            }
+          },
+          animation: {
+            pop: 'pop 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+            explode: 'explode 0.35s ease-out forwards',
+          },
+          keyframes: {
+            pop: {
+              '0%': { transform: 'scale(0.8)' },
+              '100%': { transform: 'scale(1)' },
+            },
+            explode: {
+              '0%': { transform: 'scale(1)', filter: 'brightness(2)' },
+              '50%': { transform: 'scale(1.2)', opacity: '0.8', filter: 'brightness(3)' },
+              '100%': { transform: 'scale(0)', opacity: '0' },
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Outfit', sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      background-color: #060913;
+      color: #f8fafc;
+      overflow-x: hidden;
+    }
+    .neon-cyan {
+      box-shadow: 0 0 15px rgba(6, 182, 212, 0.45);
+    }
+    .neon-amber {
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.45);
+    }
+    .glass-card {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+  </style>
+
+  <!-- React 18 & Babel Standalone (Live Server 5500 da ham, Vite da ham bittada ishlashi uchun) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="min-h-screen antialiased selection:bg-cyan-500 selection:text-black">
+  <div id="root">
+    <!-- Standalone Loading Fallback (Agar CDN bir necha soniya kechiksa ham oq fon bo'lmasligi uchun) -->
+    <div style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #060913; color: #38bdf8;">
+      <div style="font-size: 24px; font-weight: 900; letter-spacing: 2px;">BLOCK BLAST ARCADE</div>
+      <div style="font-size: 13px; color: #94a3b8; margin-top: 8px;">Yuklanmoqda...</div>
+    </div>
+  </div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // ==========================================
+    // 1. WEB AUDIO API SYNTHESIZER
+    // ==========================================
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.muted = false;
+      }
+      init() {
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) this.ctx = new AudioCtx();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+      toggle() {
+        this.muted = !this.muted;
+        return this.muted;
+      }
+      playPlace() {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(260, now);
+        osc.frequency.exponentialRampToValueAtTime(140, now + 0.08);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.08);
+      }
+      playBlast(lines = 1, combo = 1) {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const baseFreq = 300 + Math.min(combo, 8) * 50;
+        const freqs = [baseFreq, baseFreq * 1.25, baseFreq * 1.5, baseFreq * 2];
+        const count = Math.min(lines + 1, 4);
+        for (let i = 0; i < count; i++) {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = i % 2 === 0 ? 'triangle' : 'sine';
+          const t = now + i * 0.04;
+          osc.frequency.setValueAtTime(freqs[i], t);
+          osc.frequency.exponentialRampToValueAtTime(freqs[i] * 1.5, t + 0.25);
+          gain.gain.setValueAtTime(0.2 / count, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(t);
+          osc.stop(t + 0.28);
+        }
+      }
+      playRecord() {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        [523, 659, 784, 1046].forEach((f, i) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const t = now + i * 0.09;
+          osc.frequency.setValueAtTime(f, t);
+          gain.gain.setValueAtTime(0.25, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(t);
+          osc.stop(t + 0.35);
+        });
+      }
+      playGameOver() {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        [320, 280, 240, 180].forEach((f, i) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const t = now + i * 0.12;
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(f, t);
+          gain.gain.setValueAtTime(0.18, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(t);
+          osc.stop(t + 0.2);
+        });
+      }
+    }
+    const sound = new SoundEngine();
+
+    // ==========================================
+    // 2. CANVAS ZARRACHALAR (PARTICLE ENGINE)
+    // ==========================================
+    class ParticleEngine {
+      constructor() {
+        this.canvas = null;
+        this.ctx = null;
+        this.particles = [];
+        this.anim = null;
+      }
+      init(canvas) {
+        this.canvas = canvas;
+        if (canvas) {
+          this.ctx = canvas.getContext('2d');
+          this.resize();
+          window.addEventListener('resize', () => this.resize());
+        }
+      }
+      resize() {
+        if (this.canvas) {
+          this.canvas.width = window.innerWidth;
+          this.canvas.height = window.innerHeight;
+        }
+      }
+      celebrate(x, y, count = 35) {
+        if (!this.ctx || !this.canvas) return;
+        const colors = ['#06b6d4', '#ec4899', '#a3e635', '#facc15', '#a855f7', '#f97316'];
+        for (let i = 0; i < count; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 3 + Math.random() * 7;
+          this.particles.push({
+            x: x || this.canvas.width / 2,
+            y: y || this.canvas.height / 2,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 2,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            size: 4 + Math.random() * 5,
+            alpha: 1,
+            gravity: 0.16,
+            decay: 0.015 + Math.random() * 0.02
+          });
+        }
+        if (!this.anim) this.loop();
+      }
+      loop() {
+        if (!this.ctx || !this.canvas) return;
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+          const p = this.particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += p.gravity;
+          p.alpha -= p.decay;
+          if (p.alpha <= 0) {
+            this.particles.splice(i, 1);
+            continue;
+          }
+          this.ctx.save();
+          this.ctx.globalAlpha = Math.max(0, p.alpha);
+          this.ctx.fillStyle = p.color;
+          this.ctx.beginPath();
+          this.ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2);
+          this.ctx.fill();
+          this.ctx.restore();
+        }
+        if (this.particles.length > 0) {
+          this.anim = requestAnimationFrame(() => this.loop());
+        } else {
+          this.anim = null;
+        }
+      }
+    }
+    const particleEngine = new ParticleEngine();
+
+    // ==========================================
+    // 3. BLOK SHAKLLARI
+    // ==========================================
+    const SHAPES = [
+      { id: '1x1', matrix: [[1]], color: 0 },
+      { id: '2h', matrix: [[1, 1]], color: 1 },
+      { id: '2v', matrix: [[1], [1]], color: 1 },
+      { id: '3h', matrix: [[1, 1, 1]], color: 2 },
+      { id: '3v', matrix: [[1], [1], [1]], color: 2 },
+      { id: '4h', matrix: [[1, 1, 1, 1]], color: 3 },
+      { id: '4v', matrix: [[1], [1], [1], [1]], color: 3 },
+      { id: 'sq2', matrix: [[1, 1], [1, 1]], color: 4 },
+      { id: 'sq3', matrix: [[1, 1, 1], [1, 1, 1], [1, 1, 1]], color: 5 },
+      { id: 'ctl', matrix: [[1, 1], [1, 0]], color: 6 },
+      { id: 'ctr', matrix: [[1, 1], [0, 1]], color: 0 },
+      { id: 'cbl', matrix: [[1, 0], [1, 1]], color: 1 },
+      { id: 'cbr', matrix: [[0, 1], [1, 1]], color: 2 },
+      { id: 'tup', matrix: [[0, 1, 0], [1, 1, 1]], color: 3 },
+      { id: 'tdown', matrix: [[1, 1, 1], [0, 1, 0]], color: 4 },
+      { id: 'z1', matrix: [[1, 1, 0], [0, 1, 1]], color: 5 },
+      { id: 'plus', matrix: [[0, 1, 0], [1, 1, 1], [0, 1, 0]], color: 6 }
+    ];
+
+    const THEME_COLORS = [
+      'bg-cyan-400 border-cyan-200 shadow-[0_0_10px_rgba(6,182,212,0.6)]',
+      'bg-pink-500 border-pink-200 shadow-[0_0_10px_rgba(236,72,153,0.6)]',
+      'bg-lime-400 border-lime-200 shadow-[0_0_10px_rgba(163,230,53,0.6)]',
+      'bg-amber-400 border-amber-200 shadow-[0_0_10px_rgba(251,191,36,0.6)]',
+      'bg-purple-500 border-purple-200 shadow-[0_0_10px_rgba(168,85,247,0.6)]',
+      'bg-rose-500 border-rose-200 shadow-[0_0_10px_rgba(244,63,94,0.6)]',
+      'bg-blue-500 border-blue-200 shadow-[0_0_10px_rgba(59,130,246,0.6)]'
+    ];
+
+    function getRandomShapes(count = 3) {
+      const list = [];
+      for (let i = 0; i < count; i++) {
+        const item = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+        list.push({ ...item, key: item.id + '_' + Date.now() + '_' + i + '_' + Math.random() });
+      }
+      return list;
+    }
+
+    // ==========================================
+    // 4. KOMPONENT 1: BLOCK BLAST (8x8)
+    // ==========================================
+    function BlockBlastComponent({ gameMode = 'classic' }) {
+      const BOARD_SIZE = 8;
+      const [board, setBoard] = useState(() => Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null)));
+      const [dock, setDock] = useState(() => getRandomShapes(3));
+      const [selected, setSelected] = useState(null);
+      const [preview, setPreview] = useState([]);
+      const [clearing, setClearing] = useState([]);
+      const [score, setScore] = useState(0);
+      const [highScore, setHighScore] = useState(() => parseInt(localStorage.getItem('bb_high_score') || '0', 10));
+      const [combo, setCombo] = useState(0);
+      const [gameOver, setGameOver] = useState(false);
+      const [isNewHigh, setIsNewHigh] = useState(false);
+
+      const canFit = useCallback((shape, currentBoard = board) => {
+        if (!shape) return false;
+        const R = shape.matrix.length;
+        const C = shape.matrix[0].length;
+        for (let r = 0; r <= BOARD_SIZE - R; r++) {
+          for (let c = 0; c <= BOARD_SIZE - C; c++) {
+            let ok = true;
+            for (let sr = 0; sr < R; sr++) {
+              for (let sc = 0; sc < C; sc++) {
+                if (shape.matrix[sr][sc] === 1 && currentBoard[r + sr][c + sc] !== null) {
+                  ok = false;
+                  break;
+                }
+              }
+              if (!ok) break;
+            }
+            if (ok) return true;
+          }
+        }
+        return false;
+      }, [board]);
+
+      const restart = () => {
+        setBoard(Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null)));
+        setDock(getRandomShapes(3));
+        setSelected(null);
+        setPreview([]);
+        setClearing([]);
+        setScore(0);
+        setCombo(0);
+        setGameOver(false);
+        setIsNewHigh(false);
+      };
+
+      const handleCellClick = (startR, startC) => {
+        if (!selected) return;
+        const R = selected.matrix.length;
+        const C = selected.matrix[0].length;
+        if (startR + R > BOARD_SIZE || startC + C > BOARD_SIZE) return;
+
+        for (let sr = 0; sr < R; sr++) {
+          for (let sc = 0; sc < C; sc++) {
+            if (selected.matrix[sr][sc] === 1 && board[startR + sr][startC + sc] !== null) {
+              return;
+            }
+          }
+        }
+
+        sound.playPlace();
+        const nextBoard = board.map(row => [...row]);
+        let placedCount = 0;
+        for (let sr = 0; sr < R; sr++) {
+          for (let sc = 0; sc < C; sc++) {
+            if (selected.matrix[sr][sc] === 1) {
+              nextBoard[startR + sr][startC + sc] = selected.color;
+              placedCount++;
+            }
+          }
+        }
+
+        // Qator va ustunlarni tekshirish
+        const fullRows = [];
+        const fullCols = [];
+        for (let r = 0; r < BOARD_SIZE; r++) {
+          if (nextBoard[r].every(c => c !== null)) fullRows.push(r);
+        }
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          let full = true;
+          for (let r = 0; r < BOARD_SIZE; r++) {
+            if (nextBoard[r][c] === null) { full = false; break; }
+          }
+          if (full) fullCols.push(c);
+        }
+
+        const lines = fullRows.length + fullCols.length;
+        let newCombo = combo;
+        let points = placedCount * 10;
+
+        if (lines > 0) {
+          newCombo = combo + 1;
+          setCombo(newCombo);
+          points += lines * 150 * newCombo;
+          sound.playBlast(lines, newCombo);
+          particleEngine.celebrate(window.innerWidth / 2, window.innerHeight / 2, lines * 25);
+
+          const clearKeys = [];
+          fullRows.forEach(r => { for (let c = 0; c < BOARD_SIZE; c++) clearKeys.push(`${r}-${c}`); });
+          fullCols.forEach(c => { for (let r = 0; r < BOARD_SIZE; r++) clearKeys.push(`${r}-${c}`); });
+          setClearing(clearKeys);
+
+          setTimeout(() => {
+            const cleanBoard = nextBoard.map((row, r) =>
+              row.map((val, c) => (fullRows.includes(r) || fullCols.includes(c)) ? null : val)
+            );
+            setBoard(cleanBoard);
+            setClearing([]);
+            checkEnd(cleanBoard, nextDock);
+          }, 240);
+        } else {
+          newCombo = 0;
+          setCombo(0);
+          setBoard(nextBoard);
+        }
+
+        const newScore = score + points;
+        setScore(newScore);
+        if (newScore > highScore) {
+          setHighScore(newScore);
+          localStorage.setItem('bb_high_score', newScore.toString());
+          if (!isNewHigh) {
+            setIsNewHigh(true);
+            sound.playRecord();
+          }
+        }
+
+        const nextDock = dock.map(s => s?.key === selected.key ? null : s);
+        let finalDock = nextDock;
+        if (nextDock.every(s => s === null)) {
+          finalDock = getRandomShapes(3);
+        }
+        setDock(finalDock);
+        setSelected(null);
+        setPreview([]);
+
+        if (lines === 0) {
+          checkEnd(nextBoard, finalDock);
+        }
+      };
+
+      const checkEnd = (b, d) => {
+        const active = d.filter(Boolean);
+        if (active.length > 0 && !active.some(s => canFit(s, b))) {
+          setTimeout(() => {
+            setGameOver(true);
+            sound.playGameOver();
+          }, 300);
+        }
+      };
+
+      return (
+        <div className="flex flex-col items-center w-full max-w-md mx-auto p-2">
+          {/* Score Header */}
+          <div className="w-full grid grid-cols-2 gap-2 mb-3">
+            <div className="glass-card rounded-2xl p-2.5 text-center">
+              <div className="text-[10px] uppercase font-bold text-slate-400">BALL</div>
+              <div className="text-2xl font-black text-cyan-400">{score}</div>
+              {combo > 1 && (
+                <div className="text-[10px] font-black text-amber-400 animate-bounce">
+                  🔥 x{combo} COMBO!
+                </div>
+              )}
+            </div>
+            <div className="glass-card rounded-2xl p-2.5 text-center">
+              <div className="text-[10px] uppercase font-bold text-slate-400">REKORD 🏆</div>
+              <div className="text-2xl font-black text-amber-400">{highScore}</div>
+            </div>
+          </div>
+
+          {/* 8x8 Board */}
+          <div
+            className="grid gap-1.5 p-2.5 rounded-3xl bg-slate-900/90 border border-cyan-500/30 neon-cyan"
+            style={{
+              gridTemplateColumns: `repeat(${BOARD_SIZE}, minmax(0, 1fr))`,
+              width: 'min(92vw, 380px)',
+              height: 'min(92vw, 380px)'
+            }}
+          >
+            {board.map((row, r) =>
+              row.map((val, c) => {
+                const isCleared = clearing.includes(`${r}-${c}`);
+                const isPre = preview.some(p => p.r === r && p.c === c);
+                let cellClass = 'bg-slate-800/60 border border-slate-700/50';
+                if (val !== null) {
+                  cellClass = THEME_COLORS[val % THEME_COLORS.length];
+                  if (isCleared) cellClass += ' animate-explode scale-110';
+                  else cellClass += ' animate-pop';
+                } else if (isPre) {
+                  cellClass = 'bg-cyan-400/50 border-2 border-dashed border-cyan-300';
+                }
+                return (
+                  <div
+                    key={`${r}-${c}`}
+                    onClick={() => handleCellClick(r, c)}
+                    onMouseEnter={() => {
+                      if (!selected) return;
+                      const R = selected.matrix.length;
+                      const C = selected.matrix[0].length;
+                      if (r + R > BOARD_SIZE || c + C > BOARD_SIZE) {
+                        setPreview([]);
+                        return;
+                      }
+                      const list = [];
+                      for (let sr = 0; sr < R; sr++) {
+                        for (let sc = 0; sc < C; sc++) {
+                          if (selected.matrix[sr][sc] === 1) {
+                            if (board[r + sr][c + sc] !== null) { setPreview([]); return; }
+                            list.push({ r: r + sr, c: c + sc });
+                          }
+                        }
+                      }
+                      setPreview(list);
+                    }}
+                    className={`rounded-lg cursor-pointer transition-all duration-150 ${cellClass}`}
+                    style={{ aspectRatio: '1 / 1' }}
+                  />
+                );
+              })
+            )}
+          </div>
+
+          {/* Dock Shapes */}
+          <div className="w-full mt-3 flex items-center justify-around gap-2 rounded-2xl bg-slate-900/70 border border-slate-800 p-2.5 min-h-[110px]">
+            {dock.map((shape, idx) => {
+              if (!shape) {
+                return <div key={idx} className="flex-1 h-20 rounded-xl border border-dashed border-slate-800 opacity-20" />;
+              }
+              const isSel = selected?.key === shape.key;
+              const fits = canFit(shape);
+              const colorClass = THEME_COLORS[shape.color % THEME_COLORS.length];
+              return (
+                <div
+                  key={shape.key}
+                  onClick={() => {
+                    if (!fits) return;
+                    sound.playPlace();
+                    setSelected(isSel ? null : shape);
+                  }}
+                  className={`flex-1 flex flex-col items-center justify-center p-2 rounded-xl cursor-pointer transition-all ${
+                    isSel ? 'bg-cyan-500/20 border-2 border-cyan-400 scale-105' : 'bg-slate-800/40 border border-slate-700/50 hover:bg-slate-800/80'
+                  } ${!fits ? 'opacity-30 cursor-not-allowed' : ''}`}
+                >
+                  <div
+                    className="grid gap-1"
+                    style={{ gridTemplateColumns: `repeat(${shape.matrix[0].length}, minmax(0, 1fr))` }}
+                  >
+                    {shape.matrix.map((row, sr) =>
+                      row.map((cell, sc) => (
+                        <div
+                          key={`${sr}-${sc}`}
+                          className={`h-4 w-4 sm:h-5 sm:w-5 rounded ${cell === 1 ? colorClass : 'bg-transparent'}`}
+                        />
+                      ))
+                    )}
+                  </div>
+                  <div className="mt-1 text-[9px] font-bold text-slate-400">
+                    {isSel ? "Tanlandi" : "Qo'yish"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Game Over Modal */}
+          {gameOver && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-pop">
+              <div className="w-full max-w-xs rounded-3xl bg-slate-900 border border-slate-700 p-5 text-center">
+                <div className="text-4xl mb-2">💥</div>
+                <h3 className="text-xl font-black text-white">O'YIN TUGADI!</h3>
+                <div className="my-3 text-3xl font-black text-cyan-400">{score} ball</div>
+                <button
+                  onClick={restart}
+                  className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-xs font-black uppercase text-white shadow-lg shadow-cyan-500/30"
+                >
+                  Qayta O'ynash
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 5. KOMPONENT 2: WOODOKU SUDOKU BLAST (9x9)
+    // ==========================================
+    function WoodokuComponent() {
+      const BOARD_SIZE = 9;
+      const [board, setBoard] = useState(() => Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null)));
+      const [dock, setDock] = useState(() => getRandomShapes(3));
+      const [selected, setSelected] = useState(null);
+      const [preview, setPreview] = useState([]);
+      const [clearing, setClearing] = useState([]);
+      const [score, setScore] = useState(0);
+      const [highScore, setHighScore] = useState(() => parseInt(localStorage.getItem('woodoku_high_score') || '0', 10));
+      const [combo, setCombo] = useState(0);
+      const [gameOver, setGameOver] = useState(false);
+
+      const canFit = useCallback((shape, currentBoard = board) => {
+        if (!shape) return false;
+        const R = shape.matrix.length;
+        const C = shape.matrix[0].length;
+        for (let r = 0; r <= BOARD_SIZE - R; r++) {
+          for (let c = 0; c <= BOARD_SIZE - C; c++) {
+            let ok = true;
+            for (let sr = 0; sr < R; sr++) {
+              for (let sc = 0; sc < C; sc++) {
+                if (shape.matrix[sr][sc] === 1 && currentBoard[r + sr][c + sc] !== null) {
+                  ok = false;
+                  break;
+                }
+              }
+              if (!ok) break;
+            }
+            if (ok) return true;
+          }
+        }
+        return false;
+      }, [board]);
+
+      const restart = () => {
+        setBoard(Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null)));
+        setDock(getRandomShapes(3));
+        setSelected(null);
+        setPreview([]);
+        setClearing([]);
+        setScore(0);
+        setCombo(0);
+        setGameOver(false);
+      };
+
+      const handleCellClick = (startR, startC) => {
+        if (!selected) return;
+        const R = selected.matrix.length;
+        const C = selected.matrix[0].length;
+        if (startR + R > BOARD_SIZE || startC + C > BOARD_SIZE) return;
+
+        for (let sr = 0; sr < R; sr++) {
+          for (let sc = 0; sc < C; sc++) {
+            if (selected.matrix[sr][sc] === 1 && board[startR + sr][startC + sc] !== null) {
+              return;
+            }
+          }
+        }
+
+        sound.playPlace();
+        const nextBoard = board.map(row => [...row]);
+        let placedCount = 0;
+        for (let sr = 0; sr < R; sr++) {
+          for (let sc = 0; sc < C; sc++) {
+            if (selected.matrix[sr][sc] === 1) {
+              nextBoard[startR + sr][startC + sc] = selected.color;
+              placedCount++;
+            }
+          }
+        }
+
+        // Qator, Ustun va 3x3 Kvadratlarni tekshirish!
+        const fullRows = [];
+        const fullCols = [];
+        const fullBoxes = [];
+
+        for (let r = 0; r < BOARD_SIZE; r++) {
+          if (nextBoard[r].every(c => c !== null)) fullRows.push(r);
+        }
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          let full = true;
+          for (let r = 0; r < BOARD_SIZE; r++) {
+            if (nextBoard[r][c] === null) { full = false; break; }
+          }
+          if (full) fullCols.push(c);
+        }
+        for (let b = 0; b < 9; b++) {
+          const br = Math.floor(b / 3) * 3;
+          const bc = (b % 3) * 3;
+          let boxFull = true;
+          for (let r = 0; r < 3; r++) {
+            for (let c = 0; c < 3; c++) {
+              if (nextBoard[br + r][bc + c] === null) { boxFull = false; break; }
+            }
+            if (!boxFull) break;
+          }
+          if (boxFull) fullBoxes.push(b);
+        }
+
+        const totalClears = fullRows.length + fullCols.length + fullBoxes.length;
+        let newCombo = combo;
+        let points = placedCount * 10;
+
+        if (totalClears > 0) {
+          newCombo = combo + 1;
+          setCombo(newCombo);
+          points += totalClears * 160 * newCombo;
+          sound.playBlast(totalClears, newCombo);
+          particleEngine.celebrate(window.innerWidth / 2, window.innerHeight / 2, totalClears * 25);
+
+          const clearKeys = [];
+          fullRows.forEach(r => { for (let c = 0; c < BOARD_SIZE; c++) clearKeys.push(`${r}-${c}`); });
+          fullCols.forEach(c => { for (let r = 0; r < BOARD_SIZE; r++) clearKeys.push(`${r}-${c}`); });
+          fullBoxes.forEach(b => {
+            const br = Math.floor(b / 3) * 3;
+            const bc = (b % 3) * 3;
+            for (let r = 0; r < 3; r++) {
+              for (let c = 0; c < 3; c++) clearKeys.push(`${br + r}-${bc + c}`);
+            }
+          });
+          setClearing(clearKeys);
+
+          setTimeout(() => {
+            const cleanBoard = nextBoard.map((row, r) =>
+              row.map((val, c) => {
+                const b = Math.floor(r / 3) * 3 + Math.floor(c / 3);
+                if (fullRows.includes(r) || fullCols.includes(c) || fullBoxes.includes(b)) {
+                  return null;
+                }
+                return val;
+              })
+            );
+            setBoard(cleanBoard);
+            setClearing([]);
+            checkEnd(cleanBoard, nextDock);
+          }, 240);
+        } else {
+          newCombo = 0;
+          setCombo(0);
+          setBoard(nextBoard);
+        }
+
+        const newScore = score + points;
+        setScore(newScore);
+        if (newScore > highScore) {
+          setHighScore(newScore);
+          localStorage.setItem('woodoku_high_score', newScore.toString());
+        }
+
+        const nextDock = dock.map(s => s?.key === selected.key ? null : s);
+        let finalDock = nextDock;
+        if (nextDock.every(s => s === null)) {
+          finalDock = getRandomShapes(3);
+        }
+        setDock(finalDock);
+        setSelected(null);
+        setPreview([]);
+
+        if (totalClears === 0) {
+          checkEnd(nextBoard, finalDock);
+        }
+      };
+
+      const checkEnd = (b, d) => {
+        const active = d.filter(Boolean);
+        if (active.length > 0 && !active.some(s => canFit(s, b))) {
+          setTimeout(() => {
+            setGameOver(true);
+            sound.playGameOver();
+          }, 300);
+        }
+      };
+
+      return (
+        <div className="flex flex-col items-center w-full max-w-md mx-auto p-2">
+          {/* Score Header */}
+          <div className="w-full grid grid-cols-2 gap-2 mb-3">
+            <div className="glass-card rounded-2xl p-2.5 text-center">
+              <div className="text-[10px] uppercase font-bold text-slate-400">SUDOKU BALL</div>
+              <div className="text-2xl font-black text-amber-400">{score}</div>
+              {combo > 1 && (
+                <div className="text-[10px] font-black text-amber-300 animate-bounce">
+                  ✨ x{combo} STREAK!
+                </div>
+              )}
+            </div>
+            <div className="glass-card rounded-2xl p-2.5 text-center">
+              <div className="text-[10px] uppercase font-bold text-slate-400">REKORD 🏆</div>
+              <div className="text-2xl font-black text-yellow-300">{highScore}</div>
+            </div>
+          </div>
+
+          {/* 9x9 Board */}
+          <div
+            className="grid gap-1 p-2.5 rounded-3xl bg-amber-950/80 border border-amber-600/40 neon-amber"
+            style={{
+              gridTemplateColumns: `repeat(${BOARD_SIZE}, minmax(0, 1fr))`,
+              width: 'min(94vw, 400px)',
+              height: 'min(94vw, 400px)'
+            }}
+          >
+            {board.map((row, r) =>
+              row.map((val, c) => {
+                const isCleared = clearing.includes(`${r}-${c}`);
+                const isPre = preview.some(p => p.r === r && p.c === c);
+                const isRightBorder = (c + 1) % 3 === 0 && c !== 8;
+                const isBottomBorder = (r + 1) % 3 === 0 && r !== 8;
+
+                let cellClass = 'bg-amber-900/30 border border-amber-800/40';
+                if (val !== null) {
+                  cellClass = THEME_COLORS[val % THEME_COLORS.length];
+                  if (isCleared) cellClass += ' animate-explode scale-110';
+                  else cellClass += ' animate-pop';
+                } else if (isPre) {
+                  cellClass = 'bg-amber-400/50 border-2 border-dashed border-amber-300';
+                }
+                return (
+                  <div
+                    key={`${r}-${c}`}
+                    onClick={() => handleCellClick(r, c)}
+                    onMouseEnter={() => {
+                      if (!selected) return;
+                      const R = selected.matrix.length;
+                      const C = selected.matrix[0].length;
+                      if (r + R > BOARD_SIZE || c + C > BOARD_SIZE) {
+                        setPreview([]);
+                        return;
+                      }
+                      const list = [];
+                      for (let sr = 0; sr < R; sr++) {
+                        for (let sc = 0; sc < C; sc++) {
+                          if (selected.matrix[sr][sc] === 1) {
+                            if (board[r + sr][c + sc] !== null) { setPreview([]); return; }
+                            list.push({ r: r + sr, c: c + sc });
+                          }
+                        }
+                      }
+                      setPreview(list);
+                    }}
+                    className={`rounded-md cursor-pointer transition-all duration-150 ${cellClass} ${
+                      isRightBorder ? 'mr-1 sm:mr-1.5' : ''
+                    } ${isBottomBorder ? 'mb-1 sm:mb-1.5' : ''}`}
+                    style={{ aspectRatio: '1 / 1' }}
+                  />
+                );
+              })
+            )}
+          </div>
+
+          {/* Dock Shapes */}
+          <div className="w-full mt-3 flex items-center justify-around gap-2 rounded-2xl bg-amber-950/60 border border-amber-900/60 p-2.5 min-h-[110px]">
+            {dock.map((shape, idx) => {
+              if (!shape) {
+                return <div key={idx} className="flex-1 h-20 rounded-xl border border-dashed border-amber-800/30 opacity-20" />;
+              }
+              const isSel = selected?.key === shape.key;
+              const fits = canFit(shape);
+              const colorClass = THEME_COLORS[shape.color % THEME_COLORS.length];
+              return (
+                <div
+                  key={shape.key}
+                  onClick={() => {
+                    if (!fits) return;
+                    sound.playPlace();
+                    setSelected(isSel ? null : shape);
+                  }}
+                  className={`flex-1 flex flex-col items-center justify-center p-2 rounded-xl cursor-pointer transition-all ${
+                    isSel ? 'bg-amber-500/20 border-2 border-amber-400 scale-105' : 'bg-amber-900/40 border border-amber-800/50 hover:bg-amber-900/70'
+                  } ${!fits ? 'opacity-30 cursor-not-allowed' : ''}`}
+                >
+                  <div
+                    className="grid gap-1"
+                    style={{ gridTemplateColumns: `repeat(${shape.matrix[0].length}, minmax(0, 1fr))` }}
+                  >
+                    {shape.matrix.map((row, sr) =>
+                      row.map((cell, sc) => (
+                        <div
+                          key={`${sr}-${sc}`}
+                          className={`h-4 w-4 sm:h-5 sm:w-5 rounded ${cell === 1 ? colorClass : 'bg-transparent'}`}
+                        />
+                      ))
+                    )}
+                  </div>
+                  <div className="mt-1 text-[9px] font-bold text-amber-300">
+                    {isSel ? "Tanlandi" : "Qo'yish"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Game Over Modal */}
+          {gameOver && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-pop">
+              <div className="w-full max-w-xs rounded-3xl bg-slate-900 border border-amber-600/60 p-5 text-center">
+                <div className="text-4xl mb-2">🪵</div>
+                <h3 className="text-xl font-black text-amber-400">SUDOKU TUGADI!</h3>
+                <div className="my-3 text-3xl font-black text-white">{score} ball</div>
+                <button
+                  onClick={restart}
+                  className="w-full rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 py-3 text-xs font-black uppercase text-white shadow-lg shadow-amber-500/30"
+                >
+                  Qayta O'ynash
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 6. ASOSIY ILOVA (APP) - 2 TA KOMPONENT & DUEL
+    // ==========================================
+    function App() {
+      const [tab, setTab] = useState('blockblast'); // 'blockblast' | 'woodoku' | 'duel'
+      const [soundMuted, setSoundMuted] = useState(false);
+      const canvasRef = useRef(null);
+
+      useEffect(() => {
+        if (canvasRef.current) {
+          particleEngine.init(canvasRef.current);
+        }
+      }, []);
+
+      const toggleSound = () => {
+        const isM = sound.toggle();
+        setSoundMuted(isM);
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col bg-[#060913] text-white">
+          <canvas ref={canvasRef} className="fixed inset-0 pointer-events-none z-50 w-full h-full" />
+
+          {/* Top Navbar */}
+          <header className="sticky top-0 z-40 w-full border-b border-slate-800 bg-[#090d1a]/90 backdrop-blur-md px-3 py-2.5">
+            <div className="max-w-5xl mx-auto flex items-center justify-between">
+              
+              {/* Logo */}
+              <div className="flex items-center gap-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 font-black text-lg">
+                  🎮
+                </div>
+                <div>
+                  <div className="text-base font-black tracking-wide bg-gradient-to-r from-cyan-400 via-indigo-300 to-pink-500 bg-clip-text text-transparent">
+                    BLOCK BLAST ARCADE
+                  </div>
+                  <div className="text-[10px] text-slate-400">2 Ta Mustaqil Komponent</div>
+                </div>
+              </div>
+
+              {/* 2 Ta Komponent Tabs */}
+              <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
+                <button
+                  onClick={() => setTab('blockblast')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                    tab === 'blockblast' ? 'bg-cyan-500 text-black shadow-md' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  1-Komponent (8x8)
+                </button>
+                <button
+                  onClick={() => setTab('woodoku')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                    tab === 'woodoku' ? 'bg-amber-500 text-black shadow-md' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  2-Komponent (9x9)
+                </button>
+                <button
+                  onClick={() => setTab('duel')}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition hidden sm:block ${
+                    tab === 'duel' ? 'bg-purple-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  ⚔️ Duel (Ikkalasi)
+                </button>
+              </div>
+
+              {/* Sound Toggle */}
+              <button
+                onClick={toggleSound}
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-cyan-400"
+              >
+                {soundMuted ? '🔇' : '🔊'}
+              </button>
+            </div>
+          </header>
+
+          {/* Main Body */}
+          <main className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4">
+            {tab === 'blockblast' && (
+              <div className="w-full animate-pop">
+                <div className="text-center mb-2">
+                  <span className="rounded-full bg-cyan-500/20 px-3 py-0.5 text-xs font-black text-cyan-300 border border-cyan-500/30">
+                    1-KOMPONENT: BLOCK BLAST 8x8
+                  </span>
+                </div>
+                <BlockBlastComponent />
+              </div>
+            )}
+
+            {tab === 'woodoku' && (
+              <div className="w-full animate-pop">
+                <div className="text-center mb-2">
+                  <span className="rounded-full bg-amber-500/20 px-3 py-0.5 text-xs font-black text-amber-300 border border-amber-500/30">
+                    2-KOMPONENT: WOODOKU SUDOKU 9x9
+                  </span>
+                </div>
+                <WoodokuComponent />
+              </div>
+            )}
+
+            {tab === 'duel' && (
+              <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-4 animate-pop">
+                <div className="rounded-3xl bg-slate-900/60 border border-cyan-500/30 p-2 shadow-xl">
+                  <div className="text-center text-xs font-black text-cyan-400 mb-2">1-KOMPONENT (8x8)</div>
+                  <BlockBlastComponent />
+                </div>
+                <div className="rounded-3xl bg-slate-900/60 border border-amber-500/30 p-2 shadow-xl">
+                  <div className="text-center text-xs font-black text-amber-400 mb-2">2-KOMPONENT (9x9)</div>
+                  <WoodokuComponent />
+                </div>
+              </div>
+            )}
+          </main>
+
+          <footer className="border-t border-slate-900 bg-slate-950/80 py-2.5 text-center text-[11px] text-slate-500">
+            Block Blast Arcade Pro • Live Server & Vite Ready • 100% Deploy-Ready
+          </footer>
+        </div>
+      );
+    }
+
+    // Render App
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
